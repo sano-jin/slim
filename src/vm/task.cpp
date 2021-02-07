@@ -53,6 +53,9 @@
 
 #include <algorithm>
 
+/* - これは，「void (*funname)(...) （関数へのポインタ）」の型を typedef して，
+ *   callback_n という名前を与えている
+ */
 typedef void (*callback_0)(LmnReactCxtRef, LmnMembraneRef);
 typedef void (*callback_1)(LmnReactCxtRef, LmnMembraneRef, LmnAtomRef,
                            LmnLinkAttr);
@@ -150,26 +153,36 @@ namespace c17 = slim::element;
  *    5. 継続フラグ 通常モードならON、normal_remainモードならOFFにセットする
  */
 void lmn_run(Vector *start_rulesets) {
+  /* - static をつけておくと，一度スコープを抜けて，
+   *   もう一回入っても，初期化されない．
+   * - 変数の値は保持される．
+   */
   static LmnMembraneRef mem;
   static std::unique_ptr<MemReactContext> mrc = nullptr;
 
   if (!mrc)
+    /* - unique_ptrオブジェクトを構築する．
+     * - mrc が nullptr（つまり，初期化時のみ）のときだけ，ユニークポインタを割り当てる
+     * - つまり，mrc は，最初は，LmnMembraneRef nullptr を指すポインタとなる．
+     *   （ユニークポインタ自体が nullptr な訳ではない）
+     * - 追記：mrc が nullptr なのは，初期化時のみというわけではなかった．
+     */
     mrc = c14::make_unique<MemReactContext>(nullptr);
-
+  
 #ifdef USE_FIRSTCLASS_RULE
   first_class_rule_tbl_init();
 #endif
 
-  /* 通常実行では非決定実行とは異なりProcess IDを
-   * 1から再割り当てする機会(状態圧縮と復元)が存在しない.
-   * 破棄したProcessのIDを使い回す必要がある.
-   * もし通常実行の並列化を考えるならばIDを再利用するためのMT-Safeな機構が必要
+  /* 通常実行では非決定実行とは異なり Process ID を
+   * 1 から再割り当てする機会(状態圧縮と復元)が存在しない.
+   * 破棄した Process の ID を使い回す必要がある.
+   * もし通常実行の並列化を考えるならば ID を再利用するための MT-Safe な機構が必要
    */
   if (!env_proc_id_pool()) {
     env_set_proc_id_pool(new Vector(64));
   }
 
-  /* interactive: normal_cleaningフラグがONの場合は後始末 */
+  /* interactive: normal_cleaning フラグが ON の場合は後始末 */
   if (lmn_env.normal_cleaning) {
     mem->drop();
     delete mem;
@@ -177,9 +190,13 @@ void lmn_run(Vector *start_rulesets) {
     lmn_env.normal_cleaning = FALSE;
   }
 
-  /* interactive : (normal_remain時でnormal_remaining=ON)以外の場合は初期化 */
+  /* interactive : (normal_remain 時で normal_remaining = ON) 以外の場合は初期化 */
   if (!lmn_env.normal_remain && !lmn_env.normal_remaining) {
     mem = new LmnMembrane();
+    /* - 疑問：ここでメモリリークしないのか？
+     * - もともと，mrc に割り当てられていたメモリはどうなるんだ？
+     * - つまり，mem->drop() はしないのか？
+     */
     mrc = c14::make_unique<MemReactContext>(mem);
   }
   mrc->memstack_push(mem);
@@ -199,15 +216,16 @@ void lmn_run(Vector *start_rulesets) {
   mrc->memstack_reconstruct(mem);
 
   if (lmn_env.trace) {
+    /* ここでトレースしている */
     if (lmn_env.output_format != JSON) {
       mrc->increment_reaction_count();
       fprintf(stdout, "%d: ", mrc->get_reaction_count());
     }
-    lmn_dump_cell_stdout(mem);
+    lmn_dump_cell_stdout(mem); 
     if (lmn_env.show_hyperlink)
       lmn_hyperlink_print(mem);
   }
-
+  
   mem_oriented_loop(mrc.get(), mem);
 
   /** PROFILE FINISH */
@@ -216,9 +234,10 @@ void lmn_run(Vector *start_rulesets) {
     profile_finish_exec();
   }
 
-  if (lmn_env
-          .dump) { /* lmntalではioモジュールがあるけど必ず実行結果を出力するプログラミング言語,
-                      で良い?? */
+  // 最終結果を出力する
+  if (lmn_env.dump) {
+    /* lmntalではioモジュールがあるけど必ず実行結果を出力するプログラミング言語,
+       で良い?? */
     if (lmn_env.sp_dump_format == LMN_SYNTAX) {
       fprintf(stdout, "finish.\n");
     } else {
@@ -261,16 +280,16 @@ static void mem_oriented_loop(MemReactContext *ctx, LmnMembraneRef mem) {
 }
 
 /**
- * @brief 膜内の0stepルールセットを適用できるだけ適用する
+ * @brief 膜内の 0 step ルールセットを適用できるだけ適用する
  */
 bool react_zerostep_rulesets(LmnReactCxtRef rc, LmnMembraneRef cur_mem) {
   auto &rulesets = cur_mem->get_rulesets();
-  BOOL reacted = FALSE;
+  bool reacted = false;
   bool reacted_any = false;
 
   rc->is_zerostep = true;
   do {
-    reacted = FALSE;
+    reacted = false;
     for (int i = 0; i < rulesets.size(); i++) {
       LmnRuleSetRef rs = rulesets[i];
       if (!rs->is_zerostep())
